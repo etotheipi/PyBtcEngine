@@ -2306,7 +2306,7 @@ class PyScriptProcessor(object):
       return False
          
 
-   def checkSig(self,binSig, binPubKey, txOutScript, txInTx, txInIndex, lastOpCodeSep=None):
+   def checkSig(self,binSig, binPubKey, txOutScript, txInTx, txInIndex, lastOpCodeSep=None, skipHash=False):
       """ 
       Generic method for checking Bitcoin tx signatures.  This needs to be used for both
       OP_CHECKSIG and OP_CHECKMULTISIG.  Step 1 is to pop signature and public key off
@@ -2350,8 +2350,12 @@ class PyScriptProcessor(object):
       binHashCode = int_to_binary(hashtype, widthBytes=4)
       toHash = txCopy.serialize() + binHashCode
 
-      hashToVerify = hash256(toHash)
-      hashToVerify = binary_switchEndian(hashToVerify)
+      # 9a.  If we are using the Crypto++/C++ libraries, the hashing is
+      #      done by the library, and so we'll have to skip doing it here
+      hashToVerify = toHash
+      if not skipHash:
+         hashToVerify = hash256(toHash)
+         hashToVerify = binary_switchEndian(hashToVerify)
 
       # 10. Apply ECDSA signature verification
       if senderAddr.verifyDERSignature(hashToVerify, justSig):
