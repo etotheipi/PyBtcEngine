@@ -577,7 +577,7 @@ void TestCrypto(void)
 void TestECDSA(void)
 {
    SecureBinaryData msgToSign("This message came from me!");
-   SecureBinaryData privData = SecureBinaryData::GenerateRandom(32);
+   SecureBinaryData privData = SecureBinaryData().GenerateRandom(32);
 
    BTC_PRIVKEY privKey = CryptoECDSA().ParsePrivateKey(privData);
    BTC_PUBKEY  pubKey  = CryptoECDSA().ComputePublicKey(privKey);

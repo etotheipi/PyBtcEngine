@@ -12,7 +12,14 @@
 // We have to explicitly re-define some of these methods...
 SecureBinaryData & SecureBinaryData::append(SecureBinaryData & sbd2) 
 {
-   BinaryData::append(sbd2.getRawRef());
+   if(sbd2.getSize()==0) 
+      return (*this);
+
+   if(getSize()==0) 
+      BinaryData::copyFrom(sbd2.getPtr(), sbd2.getSize());
+   else
+      BinaryData::append(sbd2.getRawRef());
+
    lockData();
    return (*this);
 }
@@ -46,6 +53,7 @@ bool SecureBinaryData::operator==(SecureBinaryData const & sbd2) const
    return true;
 }
 
+/////////////////////////////////////////////////////////////////////////////
 SecureBinaryData SecureBinaryData::GenerateRandom(uint32_t numBytes)
 {
    static CryptoPP::AutoSeededRandomPool prng;
@@ -77,7 +85,7 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
 {
    // Create a random salt, even though this is probably unnecessary:
    // the variation in numIter and memReqts is probably effective enough
-   salt_ = SecureBinaryData::GenerateRandom(32);
+   salt_ = SecureBinaryData().GenerateRandom(32);
 
    // Here, we pick the largest memory reqt that allows the executing system
    // to compute the KDF is less than the target time.  A maximum can be 
@@ -126,11 +134,11 @@ void KdfRomix::computeKdfParams(double targetComputeSec, uint32_t maxMemReqts)
    double perIterSec  = allItersSec / numTest;
    numIterations_ = (uint32_t)(targetComputeSec / (perIterSec+0.0005));
    numIterations_ = (numIterations_ < 1 ? 1 : numIterations_);
-   cout << "System speed test results    : " << endl;
-   cout << "   Total test of the KDF took:  " << allItersSec*1000 << " ms" << endl;
-   cout << "                   to execute:  " << numTest << " iterations" << endl;
-   cout << "   Target computation time is:  " << targetComputeSec*1000 << " ms" << endl;
-   cout << "   Setting numIterations to:    " << numIterations_ << endl;
+   //cout << "System speed test results    :  " << endl;
+   //cout << "   Total test of the KDF took:  " << allItersSec*1000 << " ms" << endl;
+   //cout << "                   to execute:  " << numTest << " iterations" << endl;
+   //cout << "   Target computation time is:  " << targetComputeSec*1000 << " ms" << endl;
+   //cout << "   Setting numIterations to:    " << numIterations_ << endl;
 }
 
 
@@ -255,7 +263,7 @@ SecureBinaryData CryptoAES::Encrypt(SecureBinaryData & data,
 
    // Caller can supply their own IV/entropy, or let it be generated here
    if(iv.getSize() == 0)
-      iv = SecureBinaryData::GenerateRandom(BTC_AES::BLOCKSIZE);
+      iv = SecureBinaryData().GenerateRandom(BTC_AES::BLOCKSIZE);
 
 
    BTC_AES_MODE<BTC_AES>::Encryption aes_enc( (byte*)key.getPtr(), 
@@ -305,7 +313,7 @@ SecureBinaryData CryptoAES::Decrypt(SecureBinaryData & data,
 /////////////////////////////////////////////////////////////////////////////
 BTC_PRIVKEY CryptoECDSA::CreateNewPrivateKey(void)
 {
-   return ParsePrivateKey(SecureBinaryData::GenerateRandom(32));
+   return ParsePrivateKey(SecureBinaryData().GenerateRandom(32));
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -343,7 +351,7 @@ BTC_PUBKEY CryptoECDSA::ParsePublicKey(SecureBinaryData const & pubKeyX32B,
    // Initialize the public key with the ECP point just created
    cppPubKey.Initialize(CryptoPP::ASN1::secp256k1(), publicPoint);
 
-   // Validate the public key -- not sure why this needs a prng...
+   // Validate the public key -- not sure why this needs a PRNG
    static BTC_PRNG prng;
    assert(cppPubKey.Validate(prng, 3));
 
@@ -396,6 +404,12 @@ BTC_PUBKEY CryptoECDSA::ComputePublicKey(BTC_PRIVKEY const & cppPrivKey)
    return cppPubKey;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+SecureBinaryData CryptoECDSA::GenerateNewPrivateKey(void)
+{
+   return SecureBinaryData().GenerateRandom(32);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 bool CryptoECDSA::CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
@@ -416,6 +430,27 @@ bool CryptoECDSA::CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
    BTC_PRIVKEY privKey = ParsePrivateKey(privKey32);
    BTC_PUBKEY  pubKey  = ParsePublicKey(pubKey65);
    return CheckPubPrivKeyMatch(privKey, pubKey);
+}
+
+bool CryptoECDSA::VerifyPublicKeyValid(SecureBinaryData const & pubKey65)
+{
+   // Basically just copying the ParsePublicKey method, but without
+   // the assert that would throw an error from C++
+   SecureBinaryData pubXbin(pubKey65.getSliceRef( 1,32));
+   SecureBinaryData pubYbin(pubKey65.getSliceRef(33,32));
+   CryptoPP::Integer pubX;
+   CryptoPP::Integer pubY;
+   pubX.Decode(pubXbin.getPtr(), pubXbin.getSize());
+   pubY.Decode(pubYbin.getPtr(), pubYbin.getSize());
+   BTC_ECPOINT publicPoint(pubX, pubY);
+
+   // Initialize the public key with the ECP point just created
+   BTC_PUBKEY cppPubKey;
+   cppPubKey.Initialize(CryptoPP::ASN1::secp256k1(), publicPoint);
+
+   // Validate the public key -- not sure why this needs a PRNG
+   static BTC_PRNG prng;
+   return cppPubKey.Validate(prng, 3);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -488,6 +523,74 @@ bool CryptoECDSA::VerifyData(SecureBinaryData const & binMessage,
                                  (const byte*)binSignature.getPtr(), 
                                               binSignature.getSize());
 }
+
+/////////////////////////////////////////////////////////////////////////////
+// Deterministically generate new private key using a chaincode
+SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
+                                 SecureBinaryData const & binPrivKey,
+                                 SecureBinaryData const & chainCode)
+{
+
+   // Hard-code the order of the group
+   static SecureBinaryData SECP256K1_ORDER_BE = SecureBinaryData().CreateFromHex(
+           "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
+   
+   CryptoPP::Integer chaincode, origPrivExp, ecOrder;
+   // A 
+   chaincode.Decode(chainCode.getPtr(), chainCode.getSize());
+   // B 
+   origPrivExp.Decode(binPrivKey.getPtr(), binPrivKey.getSize());
+   // C
+   ecOrder.Decode(SECP256K1_ORDER_BE.getPtr(), SECP256K1_ORDER_BE.getSize());
+
+   // A*B mod C will get us a new private key exponent
+   CryptoPP::Integer newPrivExponent = 
+                  a_times_b_mod_c(chaincode, origPrivExp, ecOrder);
+
+   // Convert new private exponent to big-endian binary string 
+   SecureBinaryData newPrivData(32);
+   newPrivExponent.Encode(newPrivData.getPtr(), newPrivData.getSize());
+   return newPrivData;
+}
+                            
+/////////////////////////////////////////////////////////////////////////////
+// Deterministically generate new public key using a chaincode
+SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
+                                SecureBinaryData const & binPubKey,
+                                SecureBinaryData const & chainCode)
+{
+   static SecureBinaryData SECP256K1_ORDER_BE = SecureBinaryData::CreateFromHex(
+           "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141");
+
+   // Parse the chaincode as a big-endian integer
+   CryptoPP::Integer chaincode;
+   chaincode.Decode(chainCode.getPtr(), chainCode.getSize());
+
+   // "new" init as "old", to make sure it's initialized on the correct curve
+   BTC_PUBKEY oldPubKey = ParsePublicKey(binPubKey); 
+   BTC_PUBKEY newPubKey = ParsePublicKey(binPubKey);
+
+   // Let Crypto++ do the EC math for us, serialize the new public key
+   newPubKey.SetPublicElement( oldPubKey.ExponentiatePublicElement(chaincode) );
+   return CryptoECDSA::SerializePublicKey(newPubKey);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
    /* OpenSSL code (untested)

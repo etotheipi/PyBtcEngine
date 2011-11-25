@@ -144,6 +144,15 @@ public:
 
    ~SecureBinaryData(void) { destroy(); }
 
+   // These methods are definitely inherited, but SWIG needs them here if they
+   // are to be used from python
+   uint8_t const *   getPtr(void)  const { return BinaryData::getPtr();  }
+   uint8_t       *   getPtr(void)        { return BinaryData::getPtr();  }
+   size_t            getSize(void) const { return BinaryData::getSize(); }
+   SecureBinaryData  copy(void)    const { return SecureBinaryData(getPtr(), getSize());}
+   
+   string toHexStr(bool BE=false) const { return BinaryData::toHexStr(BE);}
+   string toBinStr(void) const          { return BinaryData::toBinStr();  }
 
    SecureBinaryData(SecureBinaryData const & sbd2) : 
            BinaryData(sbd2.getPtr(), sbd2.getSize()) { lockData(); }
@@ -162,7 +171,13 @@ public:
    //uint8_t const & operator[](size_t i) const {return BinaryData::operator[](i);}
    bool operator==(SecureBinaryData const & sbd2) const;
 
-   static SecureBinaryData GenerateRandom(uint32_t numBytes);
+   BinaryData getHash256(void) { return BtcUtils::getHash256(getPtr(), (uint32_t)getSize()); }
+   BinaryData getHash160(void) { return BtcUtils::getHash160(getPtr(), (uint32_t)getSize()); }
+
+   // This would be a static method, as would be appropriate, except SWIG won't
+   // play nice with static methods.  Instead, we will just use 
+   // SecureBinaryData().GenerateRandom(32), etc
+   SecureBinaryData GenerateRandom(uint32_t numBytes);
 
    void lockData(void)
    {
@@ -177,6 +192,7 @@ public:
          fill(0x00);
          munlock(getPtr(), getSize());
       }
+      resize(0);
    }
 
 };
@@ -205,7 +221,7 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    // Default max-memory reqt will 
    void computeKdfParams(double   targetComputeSec=0.25, 
-                         uint32_t maxMemReqts=DEFAULT_KDF_MAX_MEMORY);
+                         uint32_t maxMemReqtsBytes=DEFAULT_KDF_MAX_MEMORY);
 
    /////////////////////////////////////////////////////////////////////////////
    void usePrecomputedKdfParams(uint32_t memReqts, 
@@ -279,53 +295,59 @@ public:
    CryptoECDSA(void) {}
 
    /////////////////////////////////////////////////////////////////////////////
-   BTC_PRIVKEY CreateNewPrivateKey(void);
+   static BTC_PRIVKEY CreateNewPrivateKey(void);
 
    /////////////////////////////////////////////////////////////////////////////
-   BTC_PRIVKEY ParsePrivateKey(SecureBinaryData const & privKeyData);
+   static BTC_PRIVKEY ParsePrivateKey(SecureBinaryData const & privKeyData);
    
    /////////////////////////////////////////////////////////////////////////////
-   BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKey65B);
+   static BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKey65B);
 
    /////////////////////////////////////////////////////////////////////////////
-   BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKeyX32B,
-                             SecureBinaryData const & pubKeyY32B);
+   static BTC_PUBKEY ParsePublicKey(SecureBinaryData const & pubKeyX32B,
+                                    SecureBinaryData const & pubKeyY32B);
    
    /////////////////////////////////////////////////////////////////////////////
-   SecureBinaryData SerializePrivateKey(BTC_PRIVKEY const & privKey);
+   static SecureBinaryData SerializePrivateKey(BTC_PRIVKEY const & privKey);
    
    /////////////////////////////////////////////////////////////////////////////
-   SecureBinaryData SerializePublicKey(BTC_PUBKEY const & pubKey);
+   static SecureBinaryData SerializePublicKey(BTC_PUBKEY const & pubKey);
 
    /////////////////////////////////////////////////////////////////////////////
-   BTC_PUBKEY ComputePublicKey(BTC_PRIVKEY const & cppPrivKey);
+   static BTC_PUBKEY ComputePublicKey(BTC_PRIVKEY const & cppPrivKey);
 
    
    /////////////////////////////////////////////////////////////////////////////
-   bool CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
-                             BTC_PUBKEY  const & cppPubKey);
+   static bool CheckPubPrivKeyMatch(BTC_PRIVKEY const & cppPrivKey,
+                                    BTC_PUBKEY  const & cppPubKey);
    
    /////////////////////////////////////////////////////////////////////////////
    // For signing and verification, pass in original, UN-HASHED binary string
-   SecureBinaryData SignData(SecureBinaryData const & binToSign, 
-                             BTC_PRIVKEY const & cppPrivKey);
+   static SecureBinaryData SignData(SecureBinaryData const & binToSign, 
+                                    BTC_PRIVKEY const & cppPrivKey);
    
    
    
    /////////////////////////////////////////////////////////////////////////////
    // For signing and verification, pass in original, UN-HASHED binary string
-   bool VerifyData(SecureBinaryData const & binMessage, 
-                   SecureBinaryData const & binSignature,
-                   BTC_PUBKEY const & cppPubKey);
+   static bool VerifyData(SecureBinaryData const & binMessage, 
+                          SecureBinaryData const & binSignature,
+                          BTC_PUBKEY const & cppPubKey);
 
 
    /////////////////////////////////////////////////////////////////////////////
    // We need to make sure that we have methods that take only secure strings
    // and return secure strings (I don't feel like figuring out how to get 
    // SWIG to take BTC_PUBKEY and BTC_PRIVKEY
+
+   /////////////////////////////////////////////////////////////////////////////
+   SecureBinaryData GenerateNewPrivateKey(void);
    
    /////////////////////////////////////////////////////////////////////////////
    SecureBinaryData ComputePublicKey(SecureBinaryData const & cppPrivKey);
+
+   /////////////////////////////////////////////////////////////////////////////
+   bool VerifyPublicKeyValid(SecureBinaryData const & pubKey65);
 
    /////////////////////////////////////////////////////////////////////////////
    bool CheckPubPrivKeyMatch(SecureBinaryData const & privKey32,
@@ -341,7 +363,16 @@ public:
    bool VerifyData(SecureBinaryData const & binMessage, 
                    SecureBinaryData const & binSignature,
                    SecureBinaryData const & pubkey65B);
+
+   /////////////////////////////////////////////////////////////////////////////
+   // Deterministically generate new private key using a chaincode
+   SecureBinaryData ComputeChainedPrivateKey(SecureBinaryData const & binPrivKey,
+                                             SecureBinaryData const & chainCode);
                                
+   /////////////////////////////////////////////////////////////////////////////
+   // Deterministically generate new private key using a chaincode
+   SecureBinaryData ComputeChainedPublicKey(SecureBinaryData const & binPubKey,
+                                            SecureBinaryData const & chainCode);
 };
 
 
