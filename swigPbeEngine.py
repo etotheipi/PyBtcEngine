@@ -413,8 +413,8 @@ class PyBtcWallet(object):
       self.eofByte     = 0
       self.cppWallet   = None  # Mirror of PyBtcWallet in C++ object
       self.cppInfo     = {}    # Extra info about each address to help sync
-      self.kdfMethod   = KdfRomix()
-      self.cryptMethod = CryptoAES()
+      self.kdfMethod   = None
+      self.cryptMethod = None
       self.kdfKey      = SecureBinaryData()  # KdfKey is binary
       # Other private-key info is in actual PyPrivateKey objects
       self.privKeyGen  = PyPrivateKey()     
